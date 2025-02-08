@@ -4,7 +4,7 @@ using System.Text.RegularExpressions;
 
 namespace GCNTools;
 
-public class DiscImage
+public class DiscImage : IDisposable
 {
     private const int DiscHeaderSize = 0x0440;
     private const int DolOffsetInfoLocation = 0x0420;
@@ -12,9 +12,10 @@ public class DiscImage
     private const int FstSizeInfoLocation = 0x0428;
     private const int FstSizeMaxInfoLocation = 0x0430;
     private const int ApploaderOffset = 0x2440;
-    private string SourcePath { get; }
+    private readonly MemoryStream _memoryStream;
     private readonly FileSystemTableEntry[] _fstEntries;
     private string _title;
+    private bool _disposed;
     public long FileSize { get; }
     
     // Header Information
@@ -65,16 +66,16 @@ public class DiscImage
     public ReadOnlyCollection<FileSystemTableEntry> FstEntries => _fstEntries.AsReadOnly();
     public Banner? Banner { get; set; }
 
-    public DiscImage(string sourcePath)
+    public DiscImage(FileStream fileStream)
     {
-        SourcePath = sourcePath;
-        FileSize = new FileInfo(sourcePath).Length;
+        _memoryStream = new MemoryStream();
+        fileStream.CopyTo(_memoryStream);
+        FileSize = _memoryStream.Length;
         
-        using FileStream imageStream = new FileStream(sourcePath, FileMode.Open, FileAccess.Read);
         byte[] imageHeaderData = new byte[DiscHeaderSize];
         
         // Read disc header for information
-        imageStream.ReadExactly(imageHeaderData, 0, DiscHeaderSize);
+        _memoryStream.ReadExactly(imageHeaderData, 0, DiscHeaderSize);
         
         string codeInformation = Encoding.ASCII.GetString(imageHeaderData, 0, 4);
         if (!Regex.IsMatch(codeInformation, @"^[GDU][A-Z0-9]{2}[JEPU]$"))
@@ -106,25 +107,23 @@ public class DiscImage
         FstSizeMax  = ReadBigEndianAsUInt32(imageHeaderData, FstSizeMaxInfoLocation);
         
         // Build File System Table
-        imageStream.Seek(FstOffset, SeekOrigin.Begin);
-        _fstEntries = ReadFileSystemTable(imageStream);
+        _memoryStream.Seek(FstOffset, SeekOrigin.Begin);
+        _fstEntries = ReadFileSystemTable(_memoryStream);
 
         FileSystemTableEntry? bannerEntry = _fstEntries.FirstOrDefault(x => x.FileName == "opening.bnr");
         if (bannerEntry != null)
         {
             byte[] bannerData = new byte[bannerEntry.FileSize];
-            imageStream.Seek(bannerEntry.FileOffset, SeekOrigin.Begin);
-            imageStream.ReadExactly(bannerData, 0, (int)bannerEntry.FileSize);
+            _memoryStream.Seek(bannerEntry.FileOffset, SeekOrigin.Begin);
+            _memoryStream.ReadExactly(bannerData, 0, (int)bannerEntry.FileSize);
             Banner = new Banner(Region, bannerData);
         }
         
         // Get Apploader Date
-        imageStream.Seek(ApploaderOffset, SeekOrigin.Begin);
+        _memoryStream.Seek(ApploaderOffset, SeekOrigin.Begin);
         byte[] apploaderDateBuffer = new byte[0x0010];
-        imageStream.ReadExactly(apploaderDateBuffer, 0, apploaderDateBuffer.Length);
+        _memoryStream.ReadExactly(apploaderDateBuffer, 0, apploaderDateBuffer.Length);
         ApploaderDate = DateTime.Parse(Encoding.ASCII.GetString(apploaderDateBuffer).Replace("\0", string.Empty));
-        
-        imageStream.Close();
     }
     
     /// <summary>Extracts the disc image to a directory.</summary>
@@ -133,11 +132,8 @@ public class DiscImage
     /// or both</param>
     public void ExtractToDirectory(string destinationDirectory, ExtractionType extractionType = ExtractionType.ALL)
     {
-        if (!File.Exists(SourcePath))
-        {
-            throw new DirectoryNotFoundException($"Cannot find target directory {destinationDirectory}");
-        }
-
+        ThrowIfDisposed();
+        
         if (Directory.Exists(destinationDirectory))
         {
             Directory.Delete(destinationDirectory, true);
@@ -145,20 +141,16 @@ public class DiscImage
         
         Directory.CreateDirectory(destinationDirectory);
         
-        using FileStream imageStream = new FileStream(SourcePath, FileMode.Open, FileAccess.Read);
-        
         if (extractionType is ExtractionType.ALL or ExtractionType.SYSTEM_DATA_ONLY)
         {
-            ExtractSystemFiles(imageStream, destinationDirectory);
+            ExtractSystemFiles(_memoryStream, destinationDirectory);
         }
         
         if (extractionType is ExtractionType.ALL or ExtractionType.FILES_ONLY)
         {
             // Starting with root entry information (this is a recursive function)
-            CreateDirectoryFromEntry(imageStream, destinationDirectory, _fstEntries);
+            CreateDirectoryFromEntry(_memoryStream, destinationDirectory, _fstEntries);
         }
-        
-        imageStream.Close();
     }
 
     private void ExtractSystemFiles(Stream imageStream, string destinationDirectory)
@@ -208,10 +200,10 @@ public class DiscImage
 
     public void SaveToFile(string destinationPath)
     {
+        ThrowIfDisposed();
         // Load the game
-        using FileStream imageStream = new FileStream(SourcePath, FileMode.Open, FileAccess.Read);
-        byte[] imageData = new byte[imageStream.Length];
-        imageStream.ReadExactly(imageData, 0, imageData.Length);
+        byte[] imageData = new byte[_memoryStream.Length];
+        _memoryStream.ReadExactly(imageData, 0, imageData.Length);
         
         // Modify specific memory values
         Encoding.ASCII.GetBytes(GameCode.ToString(), 0, 0x0004, imageData, 0x0000);
@@ -302,33 +294,33 @@ public class DiscImage
         return Encoding.ASCII.GetString(fileNameBytes.ToArray());
     }
 
-    private void CreateDirectoryFromEntry(FileStream imageStream, string parentDirectory, FileSystemTableEntry[] fstEntries)
+    private void CreateDirectoryFromEntry(Stream stream, string parentDirectory, FileSystemTableEntry[] fstEntries)
     {
         for(int i = 0; i < fstEntries.Length; i++)
         {
             if (fstEntries[i].Flag == 0)
             {
-                CreateFileFromEntry(imageStream, parentDirectory, fstEntries[i]);
+                CreateFileFromEntry(stream, parentDirectory, fstEntries[i]);
             }
             else
             {
                 DirectoryInfo directory = Directory.CreateDirectory(Path.Combine(parentDirectory, fstEntries[i].FileName));
                 
                 FileSystemTableEntry[] childEntries = fstEntries.Skip(i + 1).Take((int)fstEntries[i].FileSize - fstEntries[i].Index - 1).ToArray();
-                CreateDirectoryFromEntry(imageStream, directory.FullName, childEntries);
+                CreateDirectoryFromEntry(stream, directory.FullName, childEntries);
                 i += childEntries.Length;
             }
         }
     }
 
-    private static void CreateFileFromEntry(FileStream imageStream, string parentDirectory, FileSystemTableEntry entry)
+    private static void CreateFileFromEntry(Stream stream, string parentDirectory, FileSystemTableEntry entry)
     {
-        long currentPosition = imageStream.Position;
+        long currentPosition = stream.Position;
         byte[] entryData = new byte[entry.FileSize];
-        imageStream.Seek(entry.FileOffset, SeekOrigin.Begin);
-        imageStream.ReadExactly(entryData, 0, (int)entry.FileSize);
+        stream.Seek(entry.FileOffset, SeekOrigin.Begin);
+        stream.ReadExactly(entryData, 0, (int)entry.FileSize);
         File.WriteAllBytes(Path.Combine(parentDirectory, entry.FileName), entryData);
-        imageStream.Seek(currentPosition, SeekOrigin.Begin);
+        stream.Seek(currentPosition, SeekOrigin.Begin);
     }
 
     /// <summary>Create a disc image file from system files and a data directory.</summary>
@@ -508,5 +500,29 @@ public class DiscImage
                ((uint)data[offset + 1]  << 16)  |
                ((uint)data[offset + 2]  << 8)   |
                data[offset + 3];
+    }
+    
+    protected virtual void Dispose(bool disposing)
+    {
+        if (_disposed) return;
+        
+        if (disposing)
+        {
+            _memoryStream?.Dispose();
+            Array.Clear(_fstEntries);
+        }
+        
+        _disposed = true;
+    }
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+    
+    private void ThrowIfDisposed()
+    {
+        if (!_disposed) return;
+        throw new ObjectDisposedException(nameof(DiscImage));
     }
 }

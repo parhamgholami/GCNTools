@@ -16,7 +16,8 @@ public class DiscImageTests
     [Test]
     public void OpenAmericanDiscImage()
     {
-        _discImage = new(_usIsoPath);
+        using FileStream imageStream = new(_usIsoPath, FileMode.Open, FileAccess.Read);
+        _discImage = new(imageStream);
         Assert.That(_discImage.FileSize, Is.EqualTo(1085440));
     }
 
