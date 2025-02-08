@@ -50,7 +50,7 @@ public partial struct GameCode
 
     private GameCode(char consoleId, string gameCode)
     {
-        if (ConsoleIdPattern().IsMatch(consoleId.ToString()))
+        if (!ConsoleIdPattern().IsMatch(consoleId.ToString()))
         {
             throw new FormatException("Invalid console ID!");
         }
