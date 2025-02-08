@@ -78,10 +78,6 @@ public class DiscImage : IDisposable
         _memoryStream.ReadExactly(imageHeaderData, 0, DiscHeaderSize);
         
         string codeInformation = Encoding.ASCII.GetString(imageHeaderData, 0, 4);
-        if (!Regex.IsMatch(codeInformation, @"^[GDU][A-Z0-9]{2}[JEPU]$"))
-        {
-            throw new FormatException("Invalid game code!");
-        }
         GameCode = new GameCode(codeInformation);
         MakerCode = Encoding.ASCII.GetString(imageHeaderData, 0x0004, 0x0002).Replace("\0", string.Empty);
         DiscId = imageHeaderData[0x0006];
