@@ -75,6 +75,7 @@ public class DiscImage : IDisposable
         byte[] imageHeaderData = new byte[DiscHeaderSize];
         
         // Read disc header for information
+        _memoryStream.Seek(0, SeekOrigin.Begin);
         _memoryStream.ReadExactly(imageHeaderData, 0, DiscHeaderSize);
         
         string codeInformation = Encoding.ASCII.GetString(imageHeaderData, 0, 4);
@@ -129,6 +130,7 @@ public class DiscImage : IDisposable
     public void ExtractToDirectory(string destinationDirectory, ExtractionType extractionType = ExtractionType.ALL)
     {
         ThrowIfDisposed();
+        _memoryStream.Seek(0, SeekOrigin.Begin);
         
         if (Directory.Exists(destinationDirectory))
         {
@@ -199,6 +201,7 @@ public class DiscImage : IDisposable
         ThrowIfDisposed();
         // Load the game
         byte[] imageData = new byte[_memoryStream.Length];
+        _memoryStream.Seek(0, SeekOrigin.Begin);
         _memoryStream.ReadExactly(imageData, 0, imageData.Length);
         
         // Modify specific memory values
