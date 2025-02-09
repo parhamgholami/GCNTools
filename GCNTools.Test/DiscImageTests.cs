@@ -1,5 +1,3 @@
-using System.Diagnostics;
-
 namespace GCNTools.Test;
 
 public class DiscImageTests

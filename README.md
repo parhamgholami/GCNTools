@@ -34,7 +34,8 @@ Extracting a disc image:
 ```C#
 using GCNTools;
 
-DiscImage myGameImage = new("C:/games/mygame.iso");
+using FileStream gameIso = new("C:/games/mygame.iso");
+using DiscImage myGameImage = new(gameIso);
 
 // Extract everything
 myGameImage.ExtractToDirectory("C:/extractedgames/mygame", ExtractionType.ALL);
@@ -50,7 +51,8 @@ Modifying a disc image's header information and saving the changes as a new file
 ```C#
 using GCNTools;
 
-DiscImage myGameImage = new("C:/games/mygame.iso");
+using FileStream gameIso = new("C:/games/mygame.iso");
+using DiscImage myGameImage = new(gameIso);
 myGameImage.Title = "New Game";
 myGameImage.Region = Region.NTSC_J;
 myGameImage.SaveToFile("C:/games/mymodifiedgame.iso");
