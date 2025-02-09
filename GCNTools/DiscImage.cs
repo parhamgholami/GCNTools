@@ -540,6 +540,7 @@ public class DiscImage : IDisposable
         
         _disposed = true;
     }
+    
     public void Dispose()
     {
         Dispose(true);
