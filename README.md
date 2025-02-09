@@ -53,6 +53,7 @@ using GCNTools;
 
 using FileStream gameIso = new("C:/games/mygame.iso");
 using DiscImage myGameImage = new(gameIso);
+
 myGameImage.Title = "New Game";
 myGameImage.Region = Region.NTSC_J;
 myGameImage.SaveToFile("C:/games/mymodifiedgame.iso");
