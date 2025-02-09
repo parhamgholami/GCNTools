@@ -66,6 +66,10 @@ public class DiscImage : IDisposable
     public ReadOnlyCollection<FileSystemTableEntry> FstEntries => _fstEntries.AsReadOnly();
     public Banner? Banner { get; set; }
 
+    [Obsolete("This constructor performs a read (I/O) operation which can fail. Use DiscImage(FileStream) instead and " +
+              "handle file operations before constructing the object. Later releases will remove this constructor.")]
+    public DiscImage(string filePath) : this(File.OpenRead(filePath)) {}
+    
     public DiscImage(FileStream fileStream)
     {
         _fileStream = fileStream;
