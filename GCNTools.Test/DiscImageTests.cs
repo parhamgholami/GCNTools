@@ -5,13 +5,7 @@ namespace GCNTools.Test;
 public class DiscImageTests
 {
     private DiscImage? _discImage;
-    private string _usIsoPath;
-    
-    [SetUp]
-    public void Setup()
-    {
-        _usIsoPath = Path.Combine(TestContext.CurrentContext.TestDirectory, "../../../samples/swiss_ntsc-u.iso");
-    }
+    private readonly string _usIsoPath = Path.Combine(TestContext.CurrentContext.TestDirectory, "../../../samples/swiss_ntsc-u.iso");
 
     [Test]
     public void OpenAmericanDiscImage()
