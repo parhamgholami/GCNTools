@@ -9,7 +9,7 @@ public class DiscImageTests
     public void Setup()
     {
         using FileStream fileStream = new(_usIsoPath, FileMode.Open, FileAccess.Read);
-        _discImage = new(fileStream, loadToMemory: true);
+        _discImage = new(fileStream, keepStreamInMemory: true);
     }
     
     [Test]
