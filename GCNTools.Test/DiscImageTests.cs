@@ -5,16 +5,22 @@ public class DiscImageTests
     private DiscImage? _discImage;
     private readonly string _usIsoPath = Path.Combine(TestContext.CurrentContext.TestDirectory, "../../../samples/swiss_ntsc-u.iso");
 
-    [Test]
-    public void OpenAmericanDiscImage()
+    [SetUp]
+    public void Setup()
     {
-        using FileStream imageStream = new(_usIsoPath, FileMode.Open, FileAccess.Read);
-        _discImage = new(imageStream);
+        using FileStream fileStream = new(_usIsoPath, FileMode.Open, FileAccess.Read);
+        _discImage = new(fileStream, loadToMemory: true);
+    }
+    
+    [Test]
+    public void ReadAmericanDiscFileSize()
+    {
+        Assert.That(_discImage, Is.Not.Null);
         Assert.That(_discImage.FileSize, Is.EqualTo(1085440));
     }
 
     [Test]
-    public void ReadAmericanDiscImage()
+    public void ReadAmericanDiscImageProperties()
     {
         Assert.That(_discImage, Is.Not.Null);
         Assert.Multiple(() =>

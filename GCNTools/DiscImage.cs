@@ -13,7 +13,9 @@ public class DiscImage : IDisposable
     private const int FstSizeMaxInfoLocation = 0x0430;
     private const int ApploaderOffset = 0x2440;
     private readonly FileStream _fileStream;
+    private readonly MemoryStream? _memoryStream;
     private readonly FileSystemTableEntry[] _fstEntries;
+    private readonly bool _gameInMemory;
     private string _title;
     private bool _disposed;
     public long FileSize { get; }
@@ -69,6 +71,14 @@ public class DiscImage : IDisposable
     [Obsolete("This constructor performs a read (I/O) operation which can fail. Use DiscImage(FileStream) instead and " +
               "handle file operations before constructing the object. Later releases will remove this constructor.")]
     public DiscImage(string filePath) : this(File.OpenRead(filePath)) {}
+
+    public DiscImage(FileStream fileStream, bool loadToMemory) : this(fileStream)
+    {
+        _gameInMemory = loadToMemory;
+        if (!loadToMemory) return;
+        _memoryStream = new MemoryStream();
+        fileStream.CopyTo(_memoryStream);
+    }
     
     public DiscImage(FileStream fileStream)
     {
@@ -133,7 +143,10 @@ public class DiscImage : IDisposable
     public void ExtractToDirectory(string destinationDirectory, ExtractionType extractionType = ExtractionType.ALL)
     {
         ThrowIfDisposed();
-        _fileStream.Seek(0, SeekOrigin.Begin);
+        
+        Stream? stream =  _gameInMemory ? _memoryStream : _fileStream;
+        if(stream == null) throw new ObjectDisposedException(nameof(stream));
+        stream.Seek(0, SeekOrigin.Begin);
         
         if (Directory.Exists(destinationDirectory))
         {
@@ -144,13 +157,13 @@ public class DiscImage : IDisposable
         
         if (extractionType is ExtractionType.ALL or ExtractionType.SYSTEM_DATA_ONLY)
         {
-            ExtractSystemFiles(_fileStream, destinationDirectory);
+            ExtractSystemFiles(stream, destinationDirectory);
         }
         
         if (extractionType is ExtractionType.ALL or ExtractionType.FILES_ONLY)
         {
             // Starting with root entry information (this is a recursive function)
-            CreateDirectoryFromEntry(_fileStream, destinationDirectory, _fstEntries);
+            CreateDirectoryFromEntry(stream, destinationDirectory, _fstEntries);
         }
     }
 
@@ -205,6 +218,7 @@ public class DiscImage : IDisposable
         
         const int bufferSize = 81920;
         using var fileStream = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize);
+        _fileStream.Seek(0, SeekOrigin.Begin);
         
         byte[] buffer = new byte[bufferSize];
         int bytesRead = 0;
@@ -319,7 +333,8 @@ public class DiscImage : IDisposable
             }
             else
             {
-                DirectoryInfo directory = Directory.CreateDirectory(Path.Combine(parentDirectory, fstEntries[i].FileName));
+                string fileName = fstEntries[i].FileName ?? throw new ArgumentNullException(nameof(FileSystemTableEntry.FileName));
+                DirectoryInfo directory = Directory.CreateDirectory(Path.Combine(parentDirectory, fileName));
                 
                 FileSystemTableEntry[] childEntries = fstEntries.Skip(i + 1).Take((int)fstEntries[i].FileSize - fstEntries[i].Index - 1).ToArray();
                 CreateDirectoryFromEntry(stream, directory.FullName, childEntries);
@@ -337,12 +352,13 @@ public class DiscImage : IDisposable
         
         using FileStream fileStream = new FileStream(Path.Combine(parentDirectory, entry.FileName), FileMode.Create, FileAccess.Write, FileShare.None, bufferSize);
         long currentPosition = stream.Position;
+        stream.Seek(entry.FileOffset, SeekOrigin.Begin);
+        
         int remainingBytes = (int)entry.FileSize;
-
         while (remainingBytes > 0)
         {
             int bytesToRead = Math.Min(remainingBytes, bufferSize);
-            int bytesRead = fileStream.Read(buffer, 0, bytesToRead);
+            int bytesRead = stream.Read(buffer, 0, bytesToRead);
 
             if (bytesRead == 0) break;
             fileStream.Write(buffer, 0, bytesRead);
@@ -539,6 +555,7 @@ public class DiscImage : IDisposable
         if (disposing)
         {
             _fileStream?.Dispose();
+            _memoryStream?.Dispose();
             Array.Clear(_fstEntries);
         }
         
@@ -553,7 +570,7 @@ public class DiscImage : IDisposable
     
     private void ThrowIfDisposed()
     {
-        if (!_disposed) return;
+        if (!_disposed && (_fileStream.CanRead || _gameInMemory)) return;
         throw new ObjectDisposedException(nameof(DiscImage));
     }
 }
