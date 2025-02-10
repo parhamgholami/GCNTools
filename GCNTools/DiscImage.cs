@@ -64,7 +64,6 @@ public class DiscImage : IDisposable
     public DateTime ApploaderDate;
 
     /// <summary> All the entries in the game's file system table</summary>
-    
     public ReadOnlyCollection<FileSystemTableEntry> FstEntries => _fstEntries.AsReadOnly();
     public Banner? Banner { get; set; }
 
@@ -72,6 +71,10 @@ public class DiscImage : IDisposable
               "handle file operations before constructing the object. Later releases will remove this constructor.")]
     public DiscImage(string filePath) : this(File.OpenRead(filePath)) {}
 
+    /// <summary>Disc Image Constructor</summary>
+    /// <param name="fileStream">The source disc image's filestream</param>
+    /// <param name="loadToMemory">If true, the disc image's filestream is copied into memory, allowing the data to persist
+    /// after the filestream was disposed.</param>
     public DiscImage(FileStream fileStream, bool loadToMemory) : this(fileStream)
     {
         _gameInMemory = loadToMemory;
@@ -80,6 +83,10 @@ public class DiscImage : IDisposable
         fileStream.CopyTo(_memoryStream);
     }
     
+    /// <summary>Disc Image Constructor</summary>
+    /// <remarks>This constructor reads the disc image directly from the filestream. The filestream must remain open
+    /// for the lifetime of the DiscImage unless loadToMemory is used (see other constructor).</remarks>
+    /// <param name="fileStream">The source disc image's filestream</param>
     public DiscImage(FileStream fileStream)
     {
         _fileStream = fileStream;
