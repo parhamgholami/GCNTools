@@ -1,27 +1,26 @@
-using System.Diagnostics;
-
 namespace GCNTools.Test;
 
 public class DiscImageTests
 {
     private DiscImage? _discImage;
-    private string _usIsoPath;
-    
+    private readonly string _usIsoPath = Path.Combine(TestContext.CurrentContext.TestDirectory, "../../../samples/swiss_ntsc-u.iso");
+
     [SetUp]
     public void Setup()
     {
-        _usIsoPath = Path.Combine(TestContext.CurrentContext.TestDirectory, "../../../samples/swiss_ntsc-u.iso");
+        using FileStream fileStream = new(_usIsoPath, FileMode.Open, FileAccess.Read);
+        _discImage = new(fileStream, loadToMemory: true);
     }
-
+    
     [Test]
-    public void OpenAmericanDiscImage()
+    public void ReadAmericanDiscFileSize()
     {
-        _discImage = new(_usIsoPath);
+        Assert.That(_discImage, Is.Not.Null);
         Assert.That(_discImage.FileSize, Is.EqualTo(1085440));
     }
 
     [Test]
-    public void ReadAmericanDiscImage()
+    public void ReadAmericanDiscImageProperties()
     {
         Assert.That(_discImage, Is.Not.Null);
         Assert.Multiple(() =>

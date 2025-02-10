@@ -4,7 +4,7 @@ using System.Text.RegularExpressions;
 
 namespace GCNTools;
 
-public class DiscImage
+public class DiscImage : IDisposable
 {
     private const int DiscHeaderSize = 0x0440;
     private const int DolOffsetInfoLocation = 0x0420;
@@ -12,9 +12,12 @@ public class DiscImage
     private const int FstSizeInfoLocation = 0x0428;
     private const int FstSizeMaxInfoLocation = 0x0430;
     private const int ApploaderOffset = 0x2440;
-    private string SourcePath { get; }
+    private readonly FileStream _fileStream;
+    private readonly MemoryStream? _memoryStream;
     private readonly FileSystemTableEntry[] _fstEntries;
+    private readonly bool _streamKeptInMemory;
     private string _title;
+    private bool _disposed;
     public long FileSize { get; }
     
     // Header Information
@@ -61,26 +64,41 @@ public class DiscImage
     public DateTime ApploaderDate;
 
     /// <summary> All the entries in the game's file system table</summary>
-    
     public ReadOnlyCollection<FileSystemTableEntry> FstEntries => _fstEntries.AsReadOnly();
     public Banner? Banner { get; set; }
 
-    public DiscImage(string sourcePath)
+    [Obsolete("This constructor performs a read (I/O) operation which can fail. Use DiscImage(FileStream) instead and " +
+              "handle file operations before constructing the object. Later releases will remove this constructor.")]
+    public DiscImage(string filePath) : this(File.OpenRead(filePath)) {}
+
+    /// <summary>Disc Image Constructor</summary>
+    /// <param name="fileStream">The source disc image's filestream</param>
+    /// <param name="keepStreamInMemory">If true, the disc image's filestream is copied into memory, allowing the data to persist
+    /// after the filestream was disposed.</param>
+    public DiscImage(FileStream fileStream, bool keepStreamInMemory) : this(fileStream)
     {
-        SourcePath = sourcePath;
-        FileSize = new FileInfo(sourcePath).Length;
+        _streamKeptInMemory = keepStreamInMemory;
+        if (!keepStreamInMemory) return;
+        _memoryStream = new MemoryStream();
+        fileStream.CopyTo(_memoryStream);
+    }
+    
+    /// <summary>Disc Image Constructor</summary>
+    /// <remarks>This constructor reads the disc image directly from the filestream. The filestream must remain open
+    /// for the lifetime of the DiscImage unless constructed with keepStreamInMemory set as "true" (see other constructor).</remarks>
+    /// <param name="fileStream">The source disc image's filestream</param>
+    public DiscImage(FileStream fileStream)
+    {
+        _fileStream = fileStream;
+        FileSize = _fileStream.Length;
         
-        using FileStream imageStream = new FileStream(sourcePath, FileMode.Open, FileAccess.Read);
         byte[] imageHeaderData = new byte[DiscHeaderSize];
         
         // Read disc header for information
-        imageStream.ReadExactly(imageHeaderData, 0, DiscHeaderSize);
+        _fileStream.Seek(0, SeekOrigin.Begin);
+        _fileStream.ReadExactly(imageHeaderData, 0, DiscHeaderSize);
         
         string codeInformation = Encoding.ASCII.GetString(imageHeaderData, 0, 4);
-        if (!Regex.IsMatch(codeInformation, @"^[GDU][A-Z0-9]{2}[JEPU]$"))
-        {
-            throw new FormatException("Invalid game code!");
-        }
         GameCode = new GameCode(codeInformation);
         MakerCode = Encoding.ASCII.GetString(imageHeaderData, 0x0004, 0x0002).Replace("\0", string.Empty);
         DiscId = imageHeaderData[0x0006];
@@ -106,25 +124,23 @@ public class DiscImage
         FstSizeMax  = ReadBigEndianAsUInt32(imageHeaderData, FstSizeMaxInfoLocation);
         
         // Build File System Table
-        imageStream.Seek(FstOffset, SeekOrigin.Begin);
-        _fstEntries = ReadFileSystemTable(imageStream);
+        _fileStream.Seek(FstOffset, SeekOrigin.Begin);
+        _fstEntries = ReadFileSystemTable(_fileStream);
 
         FileSystemTableEntry? bannerEntry = _fstEntries.FirstOrDefault(x => x.FileName == "opening.bnr");
         if (bannerEntry != null)
         {
             byte[] bannerData = new byte[bannerEntry.FileSize];
-            imageStream.Seek(bannerEntry.FileOffset, SeekOrigin.Begin);
-            imageStream.ReadExactly(bannerData, 0, (int)bannerEntry.FileSize);
+            _fileStream.Seek(bannerEntry.FileOffset, SeekOrigin.Begin);
+            _fileStream.ReadExactly(bannerData, 0, (int)bannerEntry.FileSize);
             Banner = new Banner(Region, bannerData);
         }
         
         // Get Apploader Date
-        imageStream.Seek(ApploaderOffset, SeekOrigin.Begin);
+        _fileStream.Seek(ApploaderOffset, SeekOrigin.Begin);
         byte[] apploaderDateBuffer = new byte[0x0010];
-        imageStream.ReadExactly(apploaderDateBuffer, 0, apploaderDateBuffer.Length);
+        _fileStream.ReadExactly(apploaderDateBuffer, 0, apploaderDateBuffer.Length);
         ApploaderDate = DateTime.Parse(Encoding.ASCII.GetString(apploaderDateBuffer).Replace("\0", string.Empty));
-        
-        imageStream.Close();
     }
     
     /// <summary>Extracts the disc image to a directory.</summary>
@@ -133,11 +149,12 @@ public class DiscImage
     /// or both</param>
     public void ExtractToDirectory(string destinationDirectory, ExtractionType extractionType = ExtractionType.ALL)
     {
-        if (!File.Exists(SourcePath))
-        {
-            throw new DirectoryNotFoundException($"Cannot find target directory {destinationDirectory}");
-        }
-
+        ThrowIfDisposed();
+        
+        Stream? stream =  _streamKeptInMemory ? _memoryStream : _fileStream;
+        if(stream == null) throw new ObjectDisposedException(nameof(stream));
+        stream.Seek(0, SeekOrigin.Begin);
+        
         if (Directory.Exists(destinationDirectory))
         {
             Directory.Delete(destinationDirectory, true);
@@ -145,20 +162,16 @@ public class DiscImage
         
         Directory.CreateDirectory(destinationDirectory);
         
-        using FileStream imageStream = new FileStream(SourcePath, FileMode.Open, FileAccess.Read);
-        
         if (extractionType is ExtractionType.ALL or ExtractionType.SYSTEM_DATA_ONLY)
         {
-            ExtractSystemFiles(imageStream, destinationDirectory);
+            ExtractSystemFiles(stream, destinationDirectory);
         }
         
         if (extractionType is ExtractionType.ALL or ExtractionType.FILES_ONLY)
         {
             // Starting with root entry information (this is a recursive function)
-            CreateDirectoryFromEntry(imageStream, destinationDirectory, _fstEntries);
+            CreateDirectoryFromEntry(stream, destinationDirectory, _fstEntries);
         }
-        
-        imageStream.Close();
     }
 
     private void ExtractSystemFiles(Stream imageStream, string destinationDirectory)
@@ -208,34 +221,49 @@ public class DiscImage
 
     public void SaveToFile(string destinationPath)
     {
-        // Load the game
-        using FileStream imageStream = new FileStream(SourcePath, FileMode.Open, FileAccess.Read);
-        byte[] imageData = new byte[imageStream.Length];
-        imageStream.ReadExactly(imageData, 0, imageData.Length);
+        ThrowIfDisposed();
         
-        // Modify specific memory values
-        Encoding.ASCII.GetBytes(GameCode.ToString(), 0, 0x0004, imageData, 0x0000);
-        Encoding.ASCII.GetBytes(MakerCode, 0, 0x0002, imageData, 0x0004);
+        const int bufferSize = 81920;
+        using var fileStream = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize);
+        _fileStream.Seek(0, SeekOrigin.Begin);
         
-        Buffer.BlockCopy(BitConverter.GetBytes(DiscId), 0, imageData, 0x0006, 0x0001);
-        Buffer.BlockCopy(BitConverter.GetBytes(Version), 0, imageData, 0x0007, 0x0001);
+        byte[] buffer = new byte[bufferSize];
+        int bytesRead = 0;
+        while ((bytesRead = _fileStream.Read(buffer, 0, bufferSize)) > 0)
+        {
+            fileStream.Write(buffer, 0, bytesRead);
+        }
         
-        Buffer.BlockCopy(MagicWord, 0, imageData, 0x001c, 0x0004);
-        Encoding.ASCII.GetBytes(Title, 0, Title.Length, imageData, 0x0020);
+        // Update header information. Move to start of stream.
+        fileStream.Seek(0, SeekOrigin.Begin);
         
-        string date = ApploaderDate.ToString("yyyy/MM/dd");
-        Encoding.ASCII.GetBytes(date, 0, 0x0009, imageData, ApploaderOffset);
+        byte[] gameCodeBytes = Encoding.ASCII.GetBytes(GameCode.ToString());
+        fileStream.Write(gameCodeBytes, 0, Math.Min(gameCodeBytes.Length, 4));
+        
+        fileStream.Seek(0x0006, SeekOrigin.Begin);
+        fileStream.WriteByte((byte)DiscId);
+        fileStream.WriteByte((byte)Version);
+    
+        fileStream.Seek(0x001c, SeekOrigin.Begin);
+        fileStream.Write(MagicWord, 0, MagicWord.Length);
+    
+        byte[] titleBytes = Encoding.ASCII.GetBytes(Title);
+        fileStream.Seek(0x0020, SeekOrigin.Begin);
+        fileStream.Write(titleBytes, 0, Math.Min(titleBytes.Length, 0x03e0));
+    
+        byte[] dateBytes = Encoding.ASCII.GetBytes(ApploaderDate.ToString("yyyy/MM/dd"));
+        fileStream.Seek(ApploaderOffset, SeekOrigin.Begin);
+        fileStream.Write(dateBytes, 0, Math.Min(dateBytes.Length, 0x0009));
         
         FileSystemTableEntry? bannerEntry = _fstEntries.FirstOrDefault(x => x.FileName == "opening.bnr");
         if (Banner != null && bannerEntry != null)
         {
-            Buffer.BlockCopy(Banner.ToByteArray(), 0, imageData, (int)bannerEntry.FileOffset, (int)bannerEntry.FileSize);
+            byte[] bannerData = Banner.ToByteArray();
+            fileStream.Seek(bannerEntry.FileOffset, SeekOrigin.Begin);
+            fileStream.Write(bannerData, 0, bannerData.Length);
         }
         
-        // Save out
-        using FileStream targetStream = new FileStream(destinationPath, FileMode.Create, FileAccess.Write);
-        targetStream.Write(imageData, 0, imageData.Length);
-        targetStream.Close();
+        fileStream.Close();
     }
 
     private FileSystemTableEntry[] ReadFileSystemTable(Stream fstStream)
@@ -302,33 +330,50 @@ public class DiscImage
         return Encoding.ASCII.GetString(fileNameBytes.ToArray());
     }
 
-    private void CreateDirectoryFromEntry(FileStream imageStream, string parentDirectory, FileSystemTableEntry[] fstEntries)
+    private void CreateDirectoryFromEntry(Stream stream, string parentDirectory, FileSystemTableEntry[] fstEntries)
     {
         for(int i = 0; i < fstEntries.Length; i++)
         {
             if (fstEntries[i].Flag == 0)
             {
-                CreateFileFromEntry(imageStream, parentDirectory, fstEntries[i]);
+                CreateFileFromEntry(stream, parentDirectory, fstEntries[i]);
             }
             else
             {
-                DirectoryInfo directory = Directory.CreateDirectory(Path.Combine(parentDirectory, fstEntries[i].FileName));
+                string fileName = fstEntries[i].FileName ?? throw new ArgumentNullException(nameof(FileSystemTableEntry.FileName));
+                DirectoryInfo directory = Directory.CreateDirectory(Path.Combine(parentDirectory, fileName));
                 
                 FileSystemTableEntry[] childEntries = fstEntries.Skip(i + 1).Take((int)fstEntries[i].FileSize - fstEntries[i].Index - 1).ToArray();
-                CreateDirectoryFromEntry(imageStream, directory.FullName, childEntries);
+                CreateDirectoryFromEntry(stream, directory.FullName, childEntries);
                 i += childEntries.Length;
             }
         }
     }
 
-    private static void CreateFileFromEntry(FileStream imageStream, string parentDirectory, FileSystemTableEntry entry)
+    private static void CreateFileFromEntry(Stream stream, string parentDirectory, FileSystemTableEntry entry)
     {
-        long currentPosition = imageStream.Position;
-        byte[] entryData = new byte[entry.FileSize];
-        imageStream.Seek(entry.FileOffset, SeekOrigin.Begin);
-        imageStream.ReadExactly(entryData, 0, (int)entry.FileSize);
-        File.WriteAllBytes(Path.Combine(parentDirectory, entry.FileName), entryData);
-        imageStream.Seek(currentPosition, SeekOrigin.Begin);
+        if (entry.FileName == null) throw new ArgumentNullException(nameof(entry.FileName));
+        
+        const int bufferSize = 81920;
+        byte[] buffer = new byte[bufferSize];
+        
+        using FileStream fileStream = new FileStream(Path.Combine(parentDirectory, entry.FileName), FileMode.Create, FileAccess.Write, FileShare.None, bufferSize);
+        long currentPosition = stream.Position;
+        stream.Seek(entry.FileOffset, SeekOrigin.Begin);
+        
+        int remainingBytes = (int)entry.FileSize;
+        while (remainingBytes > 0)
+        {
+            int bytesToRead = Math.Min(remainingBytes, bufferSize);
+            int bytesRead = stream.Read(buffer, 0, bytesToRead);
+
+            if (bytesRead == 0) break;
+            fileStream.Write(buffer, 0, bytesRead);
+            remainingBytes -= bytesRead;
+        }
+        
+        fileStream.Close();
+        stream.Seek(currentPosition, SeekOrigin.Begin);
     }
 
     /// <summary>Create a disc image file from system files and a data directory.</summary>
@@ -508,5 +553,31 @@ public class DiscImage
                ((uint)data[offset + 1]  << 16)  |
                ((uint)data[offset + 2]  << 8)   |
                data[offset + 3];
+    }
+    
+    protected virtual void Dispose(bool disposing)
+    {
+        if (_disposed) return;
+        
+        if (disposing)
+        {
+            _fileStream?.Dispose();
+            _memoryStream?.Dispose();
+            Array.Clear(_fstEntries);
+        }
+        
+        _disposed = true;
+    }
+    
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+    
+    private void ThrowIfDisposed()
+    {
+        if (!_disposed && (_fileStream.CanRead || _streamKeptInMemory)) return;
+        throw new ObjectDisposedException(nameof(DiscImage));
     }
 }

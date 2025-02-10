@@ -1,0 +1,39 @@
+name: Publish to NuGet
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v[0-9]*.[0-9]*.[0-9]*' ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: '8.0.0'
+        
+    - name: Restore dependencies
+      run: dotnet restore
+      
+    - name: Build
+      run: dotnet build --no-restore --configuration Release
+      
+    - name: Run tests
+      run: dotnet test --no-build --configuration Release
+      
+    - name: Package
+      run: dotnet pack --no-build --configuration Release --output nupkgs
+      
+    - name: Publish to NuGet
+      run: |
+        for f in nupkgs/*.nupkg; do
+          [ -e "$f" ] || continue
+          dotnet nuget push "$f" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+        done

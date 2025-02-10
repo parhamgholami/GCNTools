@@ -4,8 +4,8 @@ public class FileSystemTableEntry
 {
     public const int Size = 0x0c;
     public int Index;
-    public string FullPath = "NO_PATH";
-    public string FileName { get; set; } = "UNKNOWN_NAME";
+    public string? FullPath { get; init; }
+    public string? FileName { get; set; }
     /// <summary> Set whether entry is a file or directory.</summary>
     /// <remarks> 0 is a file, 1 is a directory</remarks>
     public byte Flag {get; init;}
