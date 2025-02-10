@@ -15,7 +15,7 @@ public class DiscImage : IDisposable
     private readonly FileStream _fileStream;
     private readonly MemoryStream? _memoryStream;
     private readonly FileSystemTableEntry[] _fstEntries;
-    private readonly bool _gameInMemory;
+    private readonly bool _streamKeptInMemory;
     private string _title;
     private bool _disposed;
     public long FileSize { get; }
@@ -73,19 +73,19 @@ public class DiscImage : IDisposable
 
     /// <summary>Disc Image Constructor</summary>
     /// <param name="fileStream">The source disc image's filestream</param>
-    /// <param name="loadToMemory">If true, the disc image's filestream is copied into memory, allowing the data to persist
+    /// <param name="keepStreamInMemory">If true, the disc image's filestream is copied into memory, allowing the data to persist
     /// after the filestream was disposed.</param>
-    public DiscImage(FileStream fileStream, bool loadToMemory) : this(fileStream)
+    public DiscImage(FileStream fileStream, bool keepStreamInMemory) : this(fileStream)
     {
-        _gameInMemory = loadToMemory;
-        if (!loadToMemory) return;
+        _streamKeptInMemory = keepStreamInMemory;
+        if (!keepStreamInMemory) return;
         _memoryStream = new MemoryStream();
         fileStream.CopyTo(_memoryStream);
     }
     
     /// <summary>Disc Image Constructor</summary>
     /// <remarks>This constructor reads the disc image directly from the filestream. The filestream must remain open
-    /// for the lifetime of the DiscImage unless loadToMemory is used (see other constructor).</remarks>
+    /// for the lifetime of the DiscImage unless constructed with keepStreamInMemory set as "true" (see other constructor).</remarks>
     /// <param name="fileStream">The source disc image's filestream</param>
     public DiscImage(FileStream fileStream)
     {
@@ -151,7 +151,7 @@ public class DiscImage : IDisposable
     {
         ThrowIfDisposed();
         
-        Stream? stream =  _gameInMemory ? _memoryStream : _fileStream;
+        Stream? stream =  _streamKeptInMemory ? _memoryStream : _fileStream;
         if(stream == null) throw new ObjectDisposedException(nameof(stream));
         stream.Seek(0, SeekOrigin.Begin);
         
@@ -577,7 +577,7 @@ public class DiscImage : IDisposable
     
     private void ThrowIfDisposed()
     {
-        if (!_disposed && (_fileStream.CanRead || _gameInMemory)) return;
+        if (!_disposed && (_fileStream.CanRead || _streamKeptInMemory)) return;
         throw new ObjectDisposedException(nameof(DiscImage));
     }
 }
