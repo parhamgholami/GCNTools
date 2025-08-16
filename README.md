@@ -1,5 +1,5 @@
 # GCNTools
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/parhamgholami/GCNTools/blob/main/LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://worktree.ca/parham/GCNTools/src/branch/main/LICENSE)
 [![NuGet](https://img.shields.io/nuget/v/GCNTools.svg)](https://www.nuget.org/packages/GCNTools)
 
 GCNTools is a simple, platform-agnostic C# .NET library for working with GameCube discs, including reading, extracting, and creating disc images.
