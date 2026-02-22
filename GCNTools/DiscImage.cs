@@ -1,6 +1,5 @@
 ﻿using System.Collections.ObjectModel;
 using System.Text;
-using System.Text.RegularExpressions;
 
 namespace GCNTools;
 
@@ -10,7 +9,7 @@ public class DiscImage : IDisposable
     private const int DolOffsetInfoLocation = 0x0420;
     private const int FstOffsetInfoLocation = 0x0424;
     private const int FstSizeInfoLocation = 0x0428;
-    private const int FstSizeMaxInfoLocation = 0x0430;
+    private const int FstSizeMaxInfoLocation = 0x042C;
     private const int ApploaderOffset = 0x2440;
     private readonly FileStream _fileStream;
     private readonly MemoryStream? _memoryStream;
@@ -391,7 +390,7 @@ public class DiscImage : IDisposable
         string dataDirectory, string destinationPath)
     {
         // Time to start writing
-        using FileStream imageStream = new FileStream(destinationPath, FileMode.OpenOrCreate, FileAccess.Write);
+        using FileStream imageStream = new FileStream(destinationPath, FileMode.Create, FileAccess.Write);
         byte[] bootBin = File.ReadAllBytes(bootBinPath);
         byte[] bi2Bin = File.ReadAllBytes(bi2BinPath);
         byte[] apploader = File.ReadAllBytes(apploaderPath);
@@ -402,23 +401,28 @@ public class DiscImage : IDisposable
         imageStream.Write(apploader, 0, apploader.Length);
             
         uint dolOffset = ReadBigEndianAsUInt32(bootBin, DolOffsetInfoLocation);
-        
         imageStream.Seek(dolOffset, SeekOrigin.Begin);
         imageStream.Write(mainDol, 0, mainDol.Length);
-        
-        uint fstOffset = ReadBigEndianAsUInt32(bootBin, FstOffsetInfoLocation);
-        uint fstSize = ReadBigEndianAsUInt32(bootBin, FstSizeInfoLocation);
-        
-        imageStream.Seek(fstOffset, SeekOrigin.Begin);
+
+        uint fstOffsetPosition = (uint)imageStream.Position;
+        imageStream.Seek(FstOffsetInfoLocation, SeekOrigin.Begin);
+        WriteUint32AsBigEndian(imageStream, fstOffsetPosition);
         
         // Build file system table
         List<FileSystemTableEntry> fstEntries = new List<FileSystemTableEntry>();
         List<string> stringTable = new List<string>();
-        uint dataOffset = fstOffset + fstSize;
-        BuildFileSystemTableEntries(dataDirectory, fstEntries, stringTable, dataOffset, 0, startingFromRoot: true);
+        
+        BuildFileSystemTableEntries(dataDirectory, fstEntries, stringTable, fstOffsetPosition, 0, startingFromRoot: true);
+        
+        imageStream.Seek(FstSizeInfoLocation, SeekOrigin.Begin);
+        uint fstSize = (uint)fstEntries.Count * 12 + (uint)stringTable.Sum(x=>x.Length + 1); // +1 for null terminator
+        WriteUint32AsBigEndian(imageStream, fstSize);
+        
+        imageStream.Seek(FstSizeMaxInfoLocation, SeekOrigin.Begin);
+        WriteUint32AsBigEndian(imageStream, fstSize); // Setting max FST as current FST size. Common practice for single disc games. TODO: Address multi-disc configurations
 
         fstEntries[0].FileName = "Game";
-        
+        imageStream.Seek(fstOffsetPosition, SeekOrigin.Begin);
         foreach (FileSystemTableEntry entry in fstEntries)
         {
             WriteFileSystemEntryToStream(imageStream, entry);

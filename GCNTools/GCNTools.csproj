@@ -12,10 +12,10 @@
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
         <RepositoryUrl>https://worktree.ca/parham/GCNTools</RepositoryUrl>
         <PackageTags>gamecube</PackageTags>
-        <PackageReleaseNotes>Initial release</PackageReleaseNotes>
+        <PackageReleaseNotes>- Fixed file system table generation</PackageReleaseNotes>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
         <Copyright>Copyright © GCNTools contributors</Copyright>
-        <Version>1.0.1</Version>
+        <Version>1.0.2</Version>
     </PropertyGroup>
 	
 	<ItemGroup>
