@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> This is a mirror of the [Worktree.ca repo](https://worktree.ca/parham/GCNTools/).  
+
 # GCNTools
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://worktree.ca/parham/GCNTools/src/branch/main/LICENSE)
 [![NuGet](https://img.shields.io/nuget/v/GCNTools.svg)](https://www.nuget.org/packages/GCNTools)
